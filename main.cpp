@@ -349,34 +349,6 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
             }
             else cout << "No available transactions!" << endl;
         }
-        // else if(commandType == CommandType::ORDERS){
-        //     unique_lock<mutex> lock(orderBook.orderMutex);
-        //     if(orderBook.getFrontBuyOrderVar() != nullptr){
-        //         Order order = *(orderBook.getFrontBuyOrderVar());
-        //         lock.unlock();
-        //         cout << "Top Buy Order: " << endl;
-                
-        //         auto orderDate = order.getDate();
-        //         cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
-        //     }
-        //     else{
-        //         lock.unlock();
-        //         cout << "No Buy Orders!" << endl;
-        //     }
-
-        //     unique_lock<mutex> lock(orderBook.orderMutex);
-        //     if(orderBook.getFrontSellOrderVar() != nullptr){
-        //         Order order = *(orderBook.getFrontSellOrderVar());
-        //         lock.unlock();
-        //         cout << "Top Sell Order: " << endl;
-        //         auto orderDate = order.getDate();
-        //         cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
-        //     }
-        //     else{
-        //         lock.unlock();
-        //         cout << "No Sell Orders!" << endl;
-        //     }
-        // }   
         else {
             if (!(ss >> username >> totalPrice >> quantity)) {
                 cout << "Error: Invalid input. Please provide your username, totalPrice and quantity to create order" << endl;
@@ -397,8 +369,6 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
 }
 
 void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& txList) {
-    // this_thread::sleep_for(chrono::seconds(10));
-    cout << "Processor has started" << endl;
     vector<future<void>> futures;
     while (true) {
         double totalPrice;
