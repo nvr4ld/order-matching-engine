@@ -9,12 +9,16 @@
 #include <format>
 #include <memory>
 #include <unordered_map>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <future>
 using namespace std;
 
 // TODO: output and input format (make it more beautiful)
 // TODO: Add comments
 
-enum class CommandType { BUY, SELL, ORDERS, TXLIST, EXIT, REGISTER, LOGIN, LOGOUT };
+enum class CommandType { BUY, SELL, ORDERS, TXLIST, EXIT, REGISTER};
 
 CommandType getOrderTypeFromString(const string& type) {
     if (type == "buy") return CommandType::BUY;
@@ -23,87 +27,23 @@ CommandType getOrderTypeFromString(const string& type) {
     if (type == "txlist") return CommandType::TXLIST;
     if (type == "exit") return CommandType::EXIT;
     if (type == "register") return CommandType::REGISTER;
-    if (type == "login") return CommandType::LOGIN;
-    if (type == "logout") return CommandType::LOGOUT;
     throw invalid_argument(format("Invalid command \"{}\"", type));
 }
 
-class Trader {
-    private:
-        string username;
-        string password;
-        double availableBalance;
-    public:
-        Trader(string username, string password, double availableBalance = 100.0){
-            this->username = username;
-            this->password = password;
-            this->availableBalance = availableBalance;
-        }
-
-        void changeBalance(double change){
-            if(change > 0.0 && availableBalance < change){
-                throw runtime_error(format("Insufficient balance: {}! Attempted to spend {}.", availableBalance, change));
-            }
-            availableBalance -= change;
-        }
-
-        string getUsername() const{
-            return username;
-        }
-
-        bool authenticate(string& password){
-            return this->password == password;
-        }
-
-        string serialize() const {
-            return format("{};{};{}", username, password, availableBalance);
-        }
-
-        static unique_ptr<Trader> deserialize(const string& data) {
-            stringstream ss(data);
-            string username, password;
-            double availableBalance;
-
-            if (getline(ss, username, ';') && getline(ss, password, ';') && (ss >> availableBalance)) {
-                return make_unique<Trader>(username, password, availableBalance);
-            }
-            return nullptr;
-        }
-};
-
 class TraderBase {
     private:
-        unordered_map<string, unique_ptr<Trader>> traders;
+        vector<string> traders;
     public:
-        Trader* addTrader(const string& username, const string& password) {
-            if (traders.find(username) != traders.end()) {
-                return nullptr;
+        void addTrader(const string& username) {
+            if (find(traders.begin(), traders.end(), username) == traders.end()) {
+                traders.push_back(username);
             }
-            traders.insert({username, make_unique<Trader>(username, password)});
-            return traders[username].get();
-        }
-
-        Trader* authenticate(const string& username, string& password) {
-            auto it = traders.find(username);
-            if (it != traders.end() && it->second->authenticate(password)) {
-                return it->second.get();
-            }
-            return nullptr;
-        } 
-
-        Trader* getTraderByUsername(const string& username) {
-            auto it = traders.find(username);
-            if (it != traders.end()){
-                return it->second.get();
-            }
-            return nullptr;
         }
 
         void saveToFile(const string& filename) {
-            ofstream file;
-            file.open(filename);
-            for (const auto& trader : traders) {
-                file << trader.second->serialize() << endl;
+            ofstream file(filename);
+            for (const auto& username : traders) {
+                file << username << endl;
             }
             file.close();
         }
@@ -113,10 +53,7 @@ class TraderBase {
             file.open(filename);
             string line;
             while (getline(file, line)) {
-                auto trader = Trader::deserialize(line);
-                if (trader) {
-                    traders.insert({trader->getUsername(), std::move(trader)});
-                }
+                traders.push_back(line);
             }
             file.close();
         }
@@ -127,9 +64,9 @@ class Order{
         int quantity;
         double pricePerOne;
         time_t date;
-        Trader* trader;
+        string trader;
     public:
-        Order(int quantity, double totalPrice, time_t timestamp, Trader* trader){
+        Order(int quantity, double totalPrice, time_t timestamp, string trader){
             this->quantity = quantity;
             this->pricePerOne = totalPrice/quantity;
             this->date = timestamp;
@@ -137,20 +74,17 @@ class Order{
         };
 
         string serialize() const {
-            return format("{} {} {} {}", quantity, pricePerOne, date, trader->getUsername());
+            return format("{} {} {} {}", quantity, pricePerOne, date, trader);
         }
 
-        static unique_ptr<Order> deserialize(const string& data, TraderBase& traderBase) {
+        static unique_ptr<Order> deserialize(const string& data) {
             stringstream ss(data);
             int quantity;
             double pricePerOne;
             time_t date;
             string username;
             if (ss >> quantity >> pricePerOne >> date >> username) {
-                Trader* trader = traderBase.getTraderByUsername(username);
-                if(trader){
-                    return make_unique<Order>(quantity, pricePerOne * quantity, date, trader);
-                }
+                return make_unique<Order>(quantity, pricePerOne * quantity, date, username);
             }
             return nullptr;
         }
@@ -171,7 +105,7 @@ class Order{
             this->quantity -= change;
         }
 
-        Trader* getTrader(){
+        string getTrader(){
             return this->trader;
         }
 };
@@ -182,10 +116,10 @@ class Transaction{
         double pricePerOne;
         double totalPrice;
         time_t date;
-        Trader* seller;
-        Trader* buyer;
+        string seller;
+        string buyer;
     public:
-        Transaction(int quantity, double pricePerOne, time_t timestamp, Trader* seller, Trader* buyer){
+        Transaction(int quantity, double pricePerOne, time_t timestamp, string seller, string buyer){
             this->quantity = quantity;
             this->pricePerOne = pricePerOne;
             this->totalPrice = pricePerOne*quantity;
@@ -195,21 +129,17 @@ class Transaction{
         }
 
         string serialize() const {
-            return format("{} {} {} {} {}", quantity, pricePerOne, date, seller->getUsername(), buyer->getUsername());
+            return format("{} {} {} {} {}", quantity, pricePerOne, date, seller, buyer);
         }
 
-        static unique_ptr<Transaction> deserialize(const string& data, TraderBase& traderBase) {
+        static unique_ptr<Transaction> deserialize(const string& data) {
             stringstream ss(data);
             int quantity;
             double pricePerOne;
             time_t date;
             string sellerName, buyerName;
             if (ss >> quantity >> pricePerOne >> date >> sellerName >> buyerName) {
-                Trader* seller = traderBase.getTraderByUsername(sellerName);
-                Trader* buyer = traderBase.getTraderByUsername(buyerName);
-                if (seller && buyer){
-                    return make_unique<Transaction>(quantity, pricePerOne, date, seller, buyer);
-                }
+                return make_unique<Transaction>(quantity, pricePerOne, date, sellerName, buyerName);
             }
             return nullptr;
         }
@@ -226,11 +156,11 @@ class Transaction{
             return this->quantity;
         }
 
-        Trader* getSeller(){
+        string getSeller(){
             return this->seller;
         }
 
-        Trader* getBuyer(){
+        string getBuyer(){
             return this->buyer;
         }
 
@@ -257,20 +187,19 @@ class TransactionList{
         }
 
         void saveToFile(const string& filename) {
-            ofstream file;
-            file.open(filename);
+            ofstream file(filename);
             for (const auto& tx : txList) {
                 file << tx->serialize() << endl;
             }
             file.close();
         }
 
-        void loadFromFile(const string& filename, TraderBase& traderBase) {
+        void loadFromFile(const string& filename) {
             ifstream file;
             file.open(filename);
             string line;
             while (getline(file, line)) {
-                auto tx = Transaction::deserialize(line, traderBase);
+                auto tx = Transaction::deserialize(line);
                 if (tx) {
                     addTransaction(std::move(tx));
                 }
@@ -334,14 +263,13 @@ class OrderBook{
         Order* getFrontSellOrder(){
             return sellOrders.empty() ? nullptr : sellOrders.front().get();
         }
-
+        
         Order* getFrontBuyOrder(){
             return buyOrders.empty() ? nullptr : buyOrders.front().get();
         }
 
         void saveToFile(const string& filename) {
-            ofstream file;
-            file.open(filename);
+            ofstream file(filename);
             for (const auto& order : sellOrders) {
                 file << "sell " << order->serialize() << endl;
             }
@@ -351,7 +279,7 @@ class OrderBook{
             file.close();
         }
 
-        void loadFromFile(const string& filename, TraderBase& traderBase) {
+        void loadFromFile(const string& filename) {
             ifstream file(filename);
             string line;
             while (getline(file, line)) {
@@ -359,7 +287,7 @@ class OrderBook{
                 string type, orderData;
                 ss >> type;
                 getline(ss, orderData);
-                auto order = Order::deserialize(orderData, traderBase);
+                auto order = Order::deserialize(orderData);
                 if (order) {
                     if (type == "sell") {
                         addSellOrder(std::move(order));
@@ -371,23 +299,26 @@ class OrderBook{
         }
 };
 
-int main(){
-    TraderBase traderBase;
-    traderBase.loadFromFile("traders.txt");
+queue<string> messageQueue;
+mutex queueMutex, fileMutex;
+condition_variable queueCv;
+bool done = false;
 
-    OrderBook orderBook;
-    TransactionList txList;
+void writeFile(const string& filename, const string& topBuyOrder, const string& topSellOrder) {
+    std::lock_guard<std::mutex> lock(fileMutex);
+    std::ofstream file(filename, std::ios::trunc);
+    if (file.is_open()) {
+        file << "Top Buy Order: " << topBuyOrder << endl;
+        file << "Top Sell Order: " << topSellOrder << endl;
+    }
+}
 
-    orderBook.loadFromFile("orders.txt", traderBase);
-    txList.loadFromFile("transactions.txt", traderBase);
-
-    string type, username, password, inputLine;
+void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList& txList) {
+    string inputLine, type, username;
+    CommandType commandType;
     double totalPrice;
     int quantity;
-    CommandType commandType;
-    Trader* currentTrader = nullptr;
-
-    while(true){
+    while (true) {
         cout << "> ";
         getline(cin, inputLine);
         stringstream ss(inputLine);
@@ -402,136 +333,159 @@ int main(){
             cerr << e.what() << endl;
             continue;
         }
-        auto now = chrono::system_clock::now();
-        time_t timestamp = chrono::system_clock::to_time_t(now);
-        if (commandType == CommandType::EXIT)
+        if (commandType == CommandType::EXIT) {
+            done = true;
+            queueCv.notify_all();
+            cout << "Input thread has finished" << endl;
             break;
-        if (!currentTrader){
-            if (commandType != CommandType::REGISTER && commandType != CommandType::LOGIN){
-                cout << "You are not logged in! Please type register or login to continue: " << endl;;
-            }
-            else if(commandType == CommandType::REGISTER){
-                if (!(ss >> username >> password)) {
-                    cout << "Error: Invalid input. Please provide your username and password to register on the same line." << endl;
-                }
-                currentTrader = traderBase.addTrader(username, password);
-                if (!currentTrader){
-                    cout << "Username is already used!" << endl;
-                }
-                else{
-                    cout << format("Welcome {}", username) << endl;
-                }
-            }
-            else{
-                if (!(ss >> username >> password)) {
-                    cout << "Error: Invalid input. Please provide your username and password to login on the same line." << endl;
-                }
-                currentTrader = traderBase.authenticate(username, password);
-                if (!currentTrader){
-                    cout << "Username or password are incorrect!" << endl;
-                }
-                else{
-                    cout << format("Welcome {}!", username) << endl;
-                }
-            }
         }
-        else if (commandType == CommandType::REGISTER || commandType == CommandType::LOGIN){
-            cout << "You are already logged in. Please logout if you want to register/login" << endl;
-        }
-        else if (commandType == CommandType::LOGOUT){
-            currentTrader = nullptr;
-        }
-        else if (commandType == CommandType::TXLIST){
+        if (commandType == CommandType::TXLIST){
             if(txList.getSize()){
                 for(int i = 0; i < txList.getSize(); i++){
                     Transaction* tx = txList.getAt(i);
                     auto txDate = tx->getDate();
-                    cout << "Quantity: " << tx->getQuantity() << " | Total Price: " << tx->getTotalPrice() << " | Date: " << ctime(&txDate) << " | Buyer: " << tx->getBuyer()->getUsername() << " | Seller: " << tx->getSeller()->getUsername() << endl;
+                    cout << "Quantity: " << tx->getQuantity() << " | Total Price: " << tx->getTotalPrice() << " | Date: " << ctime(&txDate) << " | Buyer: " << tx->getBuyer() << " | Seller: " << tx->getSeller() << endl;
                 }
             }
             else cout << "No available transactions!" << endl;
         }
-        else if(commandType == CommandType::ORDERS){
-            if(orderBook.getFrontBuyOrder() != nullptr){
-                cout << "Top Buy Order: " << endl;
-                Order* order = orderBook.getFrontBuyOrder();
-                auto orderDate = order->getDate();
-                cout << order->getQuantity() << " " << order->getPricePerOne() << " " << order->getTrader()->getUsername() << " " << ctime(&orderDate) << endl;
-            }
-            else{
-                cout << "No Buy Orders!" << endl;
-            }
+        // else if(commandType == CommandType::ORDERS){
+        //     unique_lock<mutex> lock(orderBook.orderMutex);
+        //     if(orderBook.getFrontBuyOrderVar() != nullptr){
+        //         Order order = *(orderBook.getFrontBuyOrderVar());
+        //         lock.unlock();
+        //         cout << "Top Buy Order: " << endl;
+                
+        //         auto orderDate = order.getDate();
+        //         cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
+        //     }
+        //     else{
+        //         lock.unlock();
+        //         cout << "No Buy Orders!" << endl;
+        //     }
 
-            if(orderBook.getFrontSellOrder() != nullptr){
-                cout << "Top Sell Order: " << endl;
-                Order* order = orderBook.getFrontSellOrder();
-                auto orderDate = order -> getDate();
-                cout << order->getQuantity() << " " << order->getPricePerOne() << " " << order->getTrader()->getUsername() << " " << ctime(&orderDate) << endl;
-            }
-            else{
-                cout << "No Sell Orders!" << endl;
-            }
-        }   
-        else{
-            if (!(ss >> totalPrice >> quantity)) {
-                cout << "Error: Invalid input. Please provide command, total price and quantity on the same line." << endl;
+        //     unique_lock<mutex> lock(orderBook.orderMutex);
+        //     if(orderBook.getFrontSellOrderVar() != nullptr){
+        //         Order order = *(orderBook.getFrontSellOrderVar());
+        //         lock.unlock();
+        //         cout << "Top Sell Order: " << endl;
+        //         auto orderDate = order.getDate();
+        //         cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
+        //     }
+        //     else{
+        //         lock.unlock();
+        //         cout << "No Sell Orders!" << endl;
+        //     }
+        // }   
+        else {
+            if (!(ss >> username >> totalPrice >> quantity)) {
+                cout << "Error: Invalid input. Please provide your username, totalPrice and quantity to create order" << endl;
                 continue;
             }
-
-            if (quantity <= 0){
+            if(quantity <= 0){
                 cout << "Quantity must be greater than 0." << endl;
+                continue;
             }
-            auto newOrder = make_unique<Order>(quantity, totalPrice, timestamp, currentTrader);
+            traderBase.addTrader(username);
+            lock_guard<mutex> lock(queueMutex);
+            messageQueue.push(inputLine);
+        }
+        
+        
+        queueCv.notify_one();
+    }
+}
 
-            if(commandType == CommandType::BUY){
-                try{
-                    currentTrader->changeBalance(totalPrice);
-                }
-                catch(runtime_error& e){
-                    cerr << e.what() << endl;
-                    continue;
-                }
-                orderBook.addBuyOrder(std::move(newOrder));
+void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& txList) {
+    // this_thread::sleep_for(chrono::seconds(10));
+    cout << "Processor has started" << endl;
+    vector<future<void>> futures;
+    while (true) {
+        double totalPrice;
+        int quantity;
+        string type, username;
+        CommandType commandType;
+
+        unique_lock<mutex> lock(queueMutex);
+        queueCv.wait(lock, []{ return !messageQueue.empty() || done; });
+
+        if (done && messageQueue.empty()){
+            cout << "Processor has finished" << endl;
+            break;
+        }
+
+        string message = messageQueue.front();
+        messageQueue.pop();
+        lock.unlock();
+
+        auto now = chrono::system_clock::now();
+        time_t timestamp = chrono::system_clock::to_time_t(now);
+
+        stringstream ss(message);
+
+        ss >> type;
+        commandType = getOrderTypeFromString(type);
+
+        ss >> username >> totalPrice >> quantity;
+        auto newOrder = make_unique<Order>(quantity, totalPrice, timestamp, username);
+
+        if(commandType == CommandType::BUY){
+            orderBook.addBuyOrder(std::move(newOrder));
+        }
+        else{
+            orderBook.addSellOrder(std::move(newOrder));
+        }
+
+        while(orderBook.getFrontSellOrder() && orderBook.getFrontBuyOrder() 
+        && orderBook.getFrontSellOrder()->getPricePerOne() <= orderBook.getFrontBuyOrder()->getPricePerOne() 
+        && orderBook.getFrontSellOrder()->getTrader() != orderBook.getFrontBuyOrder()->getTrader()){
+            Order* minSellOrder = orderBook.getFrontSellOrder();
+            Order* maxBuyOrder = orderBook.getFrontBuyOrder();
+            if(minSellOrder->getQuantity() == maxBuyOrder->getQuantity()){
+                auto tx = make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                txList.addTransaction(std::move(tx));
+                orderBook.popBuyOrder();
+                orderBook.popSellOrder();
+            }
+            else if(minSellOrder->getQuantity() > maxBuyOrder->getQuantity()){
+                auto tx = make_unique<Transaction>(maxBuyOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                txList.addTransaction(std::move(tx));
+                minSellOrder->changeQuantity(maxBuyOrder->getQuantity());
+                orderBook.popBuyOrder();
             }
             else{
-                orderBook.addSellOrder(std::move(newOrder));
-            }
-
-            while(orderBook.getFrontSellOrder() && orderBook.getFrontBuyOrder() 
-            && orderBook.getFrontSellOrder()->getPricePerOne() <= orderBook.getFrontBuyOrder()->getPricePerOne() 
-            && orderBook.getFrontSellOrder()->getTrader() != orderBook.getFrontBuyOrder()->getTrader()){
-                Order* minSellOrder = orderBook.getFrontSellOrder();
-                Order* maxBuyOrder = orderBook.getFrontBuyOrder();
-                now = chrono::system_clock::now();
-                timestamp = chrono::system_clock::to_time_t(now);
-                if(minSellOrder->getQuantity() == maxBuyOrder->getQuantity()){
-                    auto tx = make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
-                    minSellOrder->getTrader()->changeBalance(0.0 - minSellOrder->getPricePerOne() * minSellOrder->getQuantity());
-                    txList.addTransaction(std::move(tx));
-                    orderBook.popBuyOrder();
-                    orderBook.popSellOrder();
-                }
-                else if(minSellOrder->getQuantity() > maxBuyOrder->getQuantity()){
-                    auto tx = make_unique<Transaction>(maxBuyOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
-                    minSellOrder->getTrader()->changeBalance(0.0 - minSellOrder->getPricePerOne() * maxBuyOrder->getQuantity());
-                    txList.addTransaction(std::move(tx));
-                    minSellOrder->changeQuantity(maxBuyOrder->getQuantity());
-                    orderBook.popBuyOrder();
-                }
-                else{
-                    auto tx = make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
-                    minSellOrder->getTrader()->changeBalance(0.0 - minSellOrder->getPricePerOne() * minSellOrder->getQuantity());
-                    txList.addTransaction(std::move(tx));
-                    maxBuyOrder->changeQuantity(minSellOrder->getQuantity());
-                    orderBook.popSellOrder();
-                }
+                auto tx = make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                txList.addTransaction(std::move(tx));
+                maxBuyOrder->changeQuantity(minSellOrder->getQuantity());
+                orderBook.popSellOrder();
             }
         }
+
+        Order* topBuyOrder = orderBook.getFrontBuyOrder();
+        Order* topSellOrder = orderBook.getFrontSellOrder();
+        string topBuyOrderStr = topBuyOrder ? topBuyOrder->serialize() : "No Buy Orders";
+        string topSellOrderStr = topSellOrder ? topSellOrder->serialize() : "No Sell Orders";
+        futures.push_back(async(launch::async, writeFile, "topOrders.txt", topBuyOrderStr, topSellOrderStr));
     }
+}
+
+int main() {
+    TraderBase traderBase;
+    OrderBook orderBook;
+    TransactionList txList;
+
+    traderBase.loadFromFile("traders.txt");
+    orderBook.loadFromFile("orders.txt");
+    txList.loadFromFile("transactions.txt");
+
+    thread inputThread(inputHandler, ref(traderBase), ref(orderBook), ref(txList));
+    thread processingThread(processor, ref(traderBase), ref(orderBook), ref(txList));
+
+    inputThread.join();
+    processingThread.join();
 
     traderBase.saveToFile("traders.txt");
     orderBook.saveToFile("orders.txt");
     txList.saveToFile("transactions.txt");
-
     return 0;
 }
