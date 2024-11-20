@@ -12,11 +12,12 @@
 #include <sstream>
 
 std::queue<std::string> messageQueue;
-std::mutex queueMutex, fileMutex;
+std::mutex queueMutex, fileMutex, txListMutex;
 std::condition_variable queueCv;
 bool done = false;
+int OUTPUT_SIZE = 5;
 
-void writeFile(const std::string& filename, const std::string& topBuyOrder, const std::string& topSellOrder) {
+void writeTopOrders(const std::string& filename, const std::string& topBuyOrder, const std::string& topSellOrder) {
     std::lock_guard<std::mutex> lock(fileMutex);
     std::ofstream file(filename, std::ios::trunc);
     if (file.is_open()) {
@@ -54,9 +55,13 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
             break;
         }
         if (commandType == CommandType::TXLIST) {
-            if (txList.getSize()) {
-                for (int i = 0; i < txList.getSize(); i++) {
-                    Transaction* tx = txList.getAt(i);
+            int txListSize = txList.getSize();
+            if (txListSize) {
+                int outputSize = std::min(OUTPUT_SIZE, txListSize);
+                std::unique_lock<std::mutex> lock(txListMutex);
+                std::vector<Transaction*> txArr = txList.getLastN(outputSize);
+                txListMutex.unlock();
+                for (auto tx: txArr) {
                     auto txDate = tx->getDate();
                     std::cout << "Quantity: " << tx->getQuantity()
                               << " | Total Price: " << tx->getTotalPrice()
@@ -92,8 +97,8 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
         std::string type, username;
         CommandType commandType;
 
-        std::unique_lock<std::mutex> lock(queueMutex);
-        queueCv.wait(lock, [] { return !messageQueue.empty() || done; });
+        std::unique_lock<std::mutex> lockMsgQueue(queueMutex);
+        queueCv.wait(lockMsgQueue, [] { return !messageQueue.empty() || done; });
 
         if (done && messageQueue.empty()) {
             std::cout << "Processor has finished" << std::endl;
@@ -102,7 +107,7 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
 
         std::string message = messageQueue.front();
         messageQueue.pop();
-        lock.unlock();
+        lockMsgQueue.unlock();
 
         auto now = std::chrono::system_clock::now();
         time_t timestamp = std::chrono::system_clock::to_time_t(now);
@@ -126,19 +131,29 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
             && orderBook.getFrontSellOrder()->getTrader() != orderBook.getFrontBuyOrder()->getTrader()) {
             Order* minSellOrder = orderBook.getFrontSellOrder();
             Order* maxBuyOrder = orderBook.getFrontBuyOrder();
-            if (minSellOrder->getQuantity() == maxBuyOrder->getQuantity()) {
+            std::unique_lock<std::mutex> lockTxList(txListMutex, std::defer_lock);
+            auto res = minSellOrder->getQuantity() <=> maxBuyOrder->getQuantity();
+            if (res == 0) {
                 auto tx = std::make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                lockTxList.lock();
                 txList.addTransaction(std::move(tx));
+                lockTxList.unlock();
                 orderBook.popBuyOrder();
                 orderBook.popSellOrder();
-            } else if (minSellOrder->getQuantity() > maxBuyOrder->getQuantity()) {
+            } 
+            else if (res > 0) {
                 auto tx = std::make_unique<Transaction>(maxBuyOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                lockTxList.lock();
                 txList.addTransaction(std::move(tx));
+                lockTxList.unlock();
                 minSellOrder->changeQuantity(maxBuyOrder->getQuantity());
                 orderBook.popBuyOrder();
-            } else {
+            } 
+            else {
                 auto tx = std::make_unique<Transaction>(minSellOrder->getQuantity(), minSellOrder->getPricePerOne(), timestamp, minSellOrder->getTrader(), maxBuyOrder->getTrader());
+                lockTxList.lock();
                 txList.addTransaction(std::move(tx));
+                lockTxList.unlock();
                 maxBuyOrder->changeQuantity(minSellOrder->getQuantity());
                 orderBook.popSellOrder();
             }
@@ -148,7 +163,7 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
         Order* topSellOrder = orderBook.getFrontSellOrder();
         std::string topBuyOrderStr = topBuyOrder ? topBuyOrder->serialize() : "No Buy Orders";
         std::string topSellOrderStr = topSellOrder ? topSellOrder->serialize() : "No Sell Orders";
-        futures.push_back(std::async(std::launch::async, writeFile, "../storage/topOrders.txt", topBuyOrderStr, topSellOrderStr));
+        futures.push_back(std::async(std::launch::async, writeTopOrders, "../storage/topOrders.txt", topBuyOrderStr, topSellOrderStr));
     }
 }
 

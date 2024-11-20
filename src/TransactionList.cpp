@@ -10,8 +10,14 @@ int TransactionList::getSize() const {
     return txList.size();
 }
 
-Transaction* TransactionList::getAt(int i) const {
-    return txList[i].get();
+std::vector<Transaction*> TransactionList::getLastN(int n) {
+    int txCounter = 0;
+    std::vector<Transaction*> ans;
+    for(int i = txList.size() - 1; i >= 0 && txCounter < n; i--){
+        ans.push_back(txList[i].get());
+        txCounter += 1;
+    }
+    return ans;
 }
 
 void TransactionList::saveToFile(const std::string& filename) {

@@ -9,7 +9,7 @@ class TransactionList {
 public:
     void addTransaction(std::unique_ptr<Transaction> tx);
     int getSize() const;
-    Transaction* getAt(int i) const;
+    std::vector<Transaction*> getLastN(int n);
     void saveToFile(const std::string& filename);
     void loadFromFile(const std::string& filename);
 
