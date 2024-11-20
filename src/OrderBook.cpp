@@ -1,4 +1,5 @@
 #include "OrderBook.h"
+#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -61,29 +62,42 @@ Order* OrderBook::getFrontBuyOrder() {
 
 void OrderBook::saveToFile(const std::string& filename) {
     std::ofstream file(filename);
-    for (const auto& order : sellOrders) {
-        file << "sell " << order->serialize() << std::endl;
+    if(file.is_open()){
+        for (const auto& order : sellOrders) {
+            file << "sell " << order->serialize() << std::endl;
+        }
+        for (const auto& order : buyOrders) {
+            file << "buy " << order->serialize() << std::endl;
+        }
+        file.close();
     }
-    for (const auto& order : buyOrders) {
-        file << "buy " << order->serialize() << std::endl;
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
     }
 }
 
 void OrderBook::loadFromFile(const std::string& filename) {
     std::ifstream file(filename);
     std::string line;
-    while (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string type, orderData;
-        ss >> type;
-        std::getline(ss, orderData);
-        auto order = Order::deserialize(orderData);
-        if (order) {
-            if (type == "sell") {
-                addSellOrder(std::move(order));
-            } else if (type == "buy") {
-                addBuyOrder(std::move(order));
+    if(file.is_open()){
+        while (std::getline(file, line)) {
+            std::stringstream ss(line);
+            std::string type, orderData;
+            ss >> type;
+            std::getline(ss, orderData);
+            auto order = Order::deserialize(orderData);
+            if (order) {
+                if (type == "sell") {
+                    addSellOrder(std::move(order));
+                } else if (type == "buy") {
+                    addBuyOrder(std::move(order));
+                }
             }
         }
+        file.close();
     }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
+    }
+    
 }

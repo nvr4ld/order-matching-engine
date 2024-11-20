@@ -1,4 +1,5 @@
 #include "TraderBase.h"
+#include <iostream>
 #include <fstream>
 #include <algorithm>
 
@@ -10,15 +11,28 @@ void TraderBase::addTrader(const std::string& username) {
 
 void TraderBase::saveToFile(const std::string& filename) {
     std::ofstream file(filename);
-    for (const auto& username : traders) {
-        file << username << std::endl;
+    if(file.is_open()){
+        for (const auto& username : traders) {
+            file << username << std::endl;
+        }
+        file.close();
+    }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
     }
 }
 
 void TraderBase::loadFromFile(const std::string& filename) {
     std::ifstream file(filename);
-    std::string line;
-    while (std::getline(file, line)) {
-        traders.push_back(line);
+    if(file.is_open()){
+        std::string line;
+        while (std::getline(file, line)) {
+            traders.push_back(line);
+        }
+        file.close();
     }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
+    }
+    
 }

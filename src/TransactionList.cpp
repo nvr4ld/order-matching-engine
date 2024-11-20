@@ -1,4 +1,5 @@
 #include "TransactionList.h"
+#include <iostream>
 #include <fstream>
 
 void TransactionList::addTransaction(std::unique_ptr<Transaction> tx) {
@@ -15,18 +16,29 @@ Transaction* TransactionList::getAt(int i) const {
 
 void TransactionList::saveToFile(const std::string& filename) {
     std::ofstream file(filename);
-    for (const auto& tx : txList) {
-        file << tx->serialize() << std::endl;
+    if(file.is_open()){
+        for (const auto& tx : txList) {
+            file << tx->serialize() << std::endl;
+        }
+        file.close();
+    }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
     }
 }
 
 void TransactionList::loadFromFile(const std::string& filename) {
     std::ifstream file(filename);
-    std::string line;
-    while (std::getline(file, line)) {
-        auto tx = Transaction::deserialize(line);
-        if (tx) {
-            addTransaction(std::move(tx));
+    if(file.is_open()){
+        std::string line;
+        while (std::getline(file, line)) {
+            auto tx = Transaction::deserialize(line);
+            if (tx) {
+                addTransaction(std::move(tx));
+            }
         }
+    }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
     }
 }

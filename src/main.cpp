@@ -22,6 +22,10 @@ void writeFile(const std::string& filename, const std::string& topBuyOrder, cons
     if (file.is_open()) {
         file << "Top Buy Order: " << topBuyOrder << std::endl;
         file << "Top Sell Order: " << topSellOrder << std::endl;
+        file.close();
+    }
+    else{
+        std::cerr << "Error opening a file: " << filename << std::endl;
     }
 }
 
