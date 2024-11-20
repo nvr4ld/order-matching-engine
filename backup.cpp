@@ -341,6 +341,8 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
     CommandType commandType;
     double totalPrice;
     int quantity;
+    unique_lock<mutex> lockOrders(orderBook.orderMutex, defer_lock);
+
     while (true) {
         cout << "> ";
         getline(cin, inputLine);
@@ -373,30 +375,30 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
             else cout << "No available transactions!" << endl;
         }
         else if(commandType == CommandType::ORDERS){
-            orderBook.orderMutex.lock();
+            lockOrders.lock();
             if(orderBook.getFrontBuyOrderVar()){
                 Order order = orderBook.getFrontBuyOrderVar().value();
-                orderBook.orderMutex.unlock();
+                lockOrders.unlock();
                 cout << "Top Buy Order: " << endl;
                 
                 auto orderDate = order.getDate();
                 cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
             }
             else{
-                orderBook.orderMutex.unlock();
+                lockOrders.unlock();
                 cout << "No Buy Orders!" << endl;
             }
 
-            orderBook.orderMutex.lock();
+            lockOrders.lock();
             if(orderBook.getFrontSellOrderVar()){
                 Order order = orderBook.getFrontSellOrderVar().value();
-                orderBook.orderMutex.unlock();
+                lockOrders.unlock();
                 cout << "Top Sell Order: " << endl;
                 auto orderDate = order.getDate();
                 cout << order.getQuantity() << " " << order.getPricePerOne() << " " << order.getTrader() << " " << ctime(&orderDate) << endl;
             }
             else{
-                orderBook.orderMutex.unlock();
+                lockOrders.unlock();
                 cout << "No Sell Orders!" << endl;
             }
         }   
@@ -426,8 +428,9 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
         string type, username;
         CommandType commandType;
 
-        unique_lock<mutex> lock(queueMutex);
-        queueCv.wait(lock, []{ return !messageQueue.empty() || done; });
+        unique_lock<mutex> lockMsgQueue(queueMutex);
+        unique_lock<mutex> lockOrders(orderBook.orderMutex, std::defer_lock);
+        queueCv.wait(lockMsgQueue, []{ return !messageQueue.empty() || done; });
 
         if (done && messageQueue.empty()){
             cout << "Processor has finished" << endl;
@@ -436,7 +439,7 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
 
         string message = messageQueue.front();
         messageQueue.pop();
-        lock.unlock();
+        lockMsgQueue.unlock();
 
         auto now = chrono::system_clock::now();
         time_t timestamp = chrono::system_clock::to_time_t(now);
@@ -481,10 +484,10 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
             }
         }
 
-        if (orderBook.orderMutex.try_lock()){
+        if (lockOrders.try_lock()){
             orderBook.updateFrontBuyOrderVar();
             orderBook.updateFrontSellOrderVar();
-            orderBook.orderMutex.unlock();
+            lockOrders.unlock();
         }
     }
 }
