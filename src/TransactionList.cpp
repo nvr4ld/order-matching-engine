@@ -13,9 +13,9 @@ int TransactionList::getSize() const {
 std::vector<Transaction*> TransactionList::getLastN(int n) {
     int txCounter = 0;
     std::vector<Transaction*> ans;
-    for(int i = txList.size() - 1; i >= 0 && txCounter < n; i--){
-        ans.push_back(txList[i].get());
-        txCounter += 1;
+    ans.reserve(n);
+    for(auto it = txList.rbegin(); it != txList.rend() && n > 0; ++it, --n){
+        ans.push_back(it->get());
     }
     return ans;
 }

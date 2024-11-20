@@ -14,8 +14,8 @@
 std::queue<std::string> messageQueue;
 std::mutex queueMutex, fileMutex, txListMutex;
 std::condition_variable queueCv;
-bool done = false;
-int OUTPUT_SIZE = 5;
+bool inputFinished = false;
+int TXLIST_OUTPUT_SIZE = 5;
 
 void writeTopOrders(const std::string& filename, const std::string& topBuyOrder, const std::string& topSellOrder) {
     std::lock_guard<std::mutex> lock(fileMutex);
@@ -49,7 +49,7 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
             continue;
         }
         if (commandType == CommandType::EXIT) {
-            done = true;
+            inputFinished = true;
             queueCv.notify_all();
             std::cout << "Input thread has finished" << std::endl;
             break;
@@ -57,7 +57,7 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
         if (commandType == CommandType::TXLIST) {
             int txListSize = txList.getSize();
             if (txListSize) {
-                int outputSize = std::min(OUTPUT_SIZE, txListSize);
+                int outputSize = std::min(TXLIST_OUTPUT_SIZE, txListSize);
                 std::unique_lock<std::mutex> lock(txListMutex);
                 std::vector<Transaction*> txArr = txList.getLastN(outputSize);
                 txListMutex.unlock();
@@ -98,9 +98,9 @@ void processor(TraderBase& traderBase, OrderBook& orderBook, TransactionList& tx
         CommandType commandType;
 
         std::unique_lock<std::mutex> lockMsgQueue(queueMutex);
-        queueCv.wait(lockMsgQueue, [] { return !messageQueue.empty() || done; });
+        queueCv.wait(lockMsgQueue, [] { return !messageQueue.empty() || inputFinished; });
 
-        if (done && messageQueue.empty()) {
+        if (inputFinished && messageQueue.empty()) {
             std::cout << "Processor has finished" << std::endl;
             break;
         }
