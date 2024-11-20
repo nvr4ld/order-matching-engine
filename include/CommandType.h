@@ -4,7 +4,7 @@
 #include <string>
 #include <stdexcept>
 
-enum class CommandType { BUY, SELL, TXLIST, EXIT, REGISTER };
+enum class CommandType { BUY, SELL, TXLIST, EXIT };
 
 CommandType getOrderTypeFromString(const std::string& type);
 
