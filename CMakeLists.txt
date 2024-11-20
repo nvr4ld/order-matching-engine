@@ -31,7 +31,7 @@ target_include_directories(OrderMatchingEngine PRIVATE include)
 
 # Test executable
 add_executable(testMatching
-  tests/testMatching.cc
+  tests/testMatching.cpp
   ../src/Order.cpp
   ../src/OrderBook.cpp
   ../src/TraderBase.cpp
