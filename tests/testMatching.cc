@@ -125,7 +125,7 @@ TEST(PerformanceTest, TimePerformace) {
     auto startAdd = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < 100000; ++i) {
-        simulateInput(orderBook, txList, "buy Alice 100000 1");
+        simulateInput(orderBook, txList, "buy Alice 1 1");
     }
     auto endAdd = std::chrono::high_resolution_clock::now();
 
