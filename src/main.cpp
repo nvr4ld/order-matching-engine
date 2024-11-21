@@ -84,6 +84,10 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
                 std::cout << "Quantity must be greater than 0." << std::endl;
                 continue;
             }
+            if (totalPrice <= 0) {
+                std::cout << "Total Price must be greater than 0." << std::endl;
+                continue;
+            }
             traderBase.addTrader(username); // ensure trader is registered
             std::lock_guard<std::mutex> lock(queueMutex);
             messageQueue.push(inputLine);
