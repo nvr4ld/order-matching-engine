@@ -91,8 +91,8 @@ void inputHandler(TraderBase& traderBase, OrderBook& orderBook, TransactionList&
             traderBase.addTrader(username); // ensure trader is registered
             std::lock_guard<std::mutex> lock(queueMutex);
             messageQueue.push(inputLine);
+            queueCv.notify_one(); // notify orderProcessor of a new message
         }
-        queueCv.notify_one(); // notify orderProcessor of a new message
     }
 }
 
