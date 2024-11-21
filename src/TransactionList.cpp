@@ -10,6 +10,7 @@ int TransactionList::getSize() const {
     return txList.size();
 }
 
+// return latest n transactions
 std::vector<Transaction*> TransactionList::getLastN(int n) {
     int txCounter = 0;
     std::vector<Transaction*> ans;

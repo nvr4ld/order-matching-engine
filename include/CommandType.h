@@ -8,4 +8,4 @@ enum class CommandType { BUY, SELL, TXLIST, EXIT };
 
 CommandType getOrderTypeFromString(const std::string& type);
 
-#endif // COMMANDTYPE_H
+#endif

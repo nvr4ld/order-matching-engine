@@ -1,5 +1,6 @@
 #include "CommandType.h"
 
+// Convert string to CommandType enum
 CommandType getOrderTypeFromString(const std::string& type) {
     if (type == "buy") return CommandType::BUY;
     if (type == "sell") return CommandType::SELL;

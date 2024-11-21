@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <format>
 
+// orders with higher price have priority; 
+// if prices are equal, earlier orders are prioritized.
 struct greaterBuy{
     bool operator()(const std::unique_ptr<Order>& a,const std::unique_ptr<Order>& b) const{
         if(a->getPricePerOne() == b->getPricePerOne()){
@@ -14,6 +16,8 @@ struct greaterBuy{
     }
 };
 
+// orders with lower price have priority; 
+// if prices are equal, earlier orders are prioritized.
 struct greaterSell{
     bool operator()(const std::unique_ptr<Order>& a,const std::unique_ptr<Order>& b) const{
         if(a->getPricePerOne() == b->getPricePerOne()){
@@ -28,6 +32,7 @@ OrderBook::OrderBook() {
     std::make_heap(buyOrders.begin(), buyOrders.end(), greaterBuy());
 }
 
+// push orders
 void OrderBook::addSellOrder(std::unique_ptr<Order> newOrder) {
     sellOrders.push_back(std::move(newOrder));
     std::push_heap(sellOrders.begin(), sellOrders.end(), greaterSell());
@@ -38,6 +43,7 @@ void OrderBook::addBuyOrder(std::unique_ptr<Order> newOrder) {
     std::push_heap(buyOrders.begin(), buyOrders.end(), greaterBuy());
 }
 
+// pop orders
 void OrderBook::popSellOrder() {
     if (!sellOrders.empty()) {
         std::pop_heap(sellOrders.begin(), sellOrders.end(), greaterSell());
@@ -52,6 +58,7 @@ void OrderBook::popBuyOrder() {
     }
 }
 
+// get front orders
 Order* OrderBook::getFrontSellOrder() {
     return sellOrders.empty() ? nullptr : sellOrders.front().get();
 }
