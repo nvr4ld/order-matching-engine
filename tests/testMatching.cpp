@@ -119,7 +119,7 @@ TEST(OrderBookTest, SameUserNoMatch) {
     EXPECT_EQ(txList.getSize(), 0);
 }
 
-TEST(PerformanceTest, TimePerformace) {
+TEST(OrderBookTest, PerformanceTest) {
     OrderBook orderBook;
     TransactionList txList;
     auto startAdd = std::chrono::high_resolution_clock::now();
