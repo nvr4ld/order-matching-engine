@@ -7,7 +7,7 @@
 #include "../src/TraderBase.h"
 #include "../src/Transaction.h"
 #include "../src/TransactionList.h"
-#include "CommandType.h"
+#include "../include/CommandType.h"
 
 // Helper function to simulate input and process orders
 void simulateInput(OrderBook& orderBook, TransactionList& txList, const std::string& input) {
@@ -16,8 +16,19 @@ void simulateInput(OrderBook& orderBook, TransactionList& txList, const std::str
     double totalPrice;
     int quantity;
 
-    ss >> type >> username >> totalPrice >> quantity;
-    CommandType commandType = getOrderTypeFromString(type);
+    ss >> type;
+    CommandType commandType;
+    commandType = getOrderTypeFromString(type);
+
+    if (!(ss >> username >> totalPrice >> quantity)) {
+        return;
+    }
+    if (quantity <= 0) {
+        return;
+    }
+    if (totalPrice <= 0) {
+        return;
+    }
 
     auto now = std::chrono::system_clock::now();
     time_t timestamp = std::chrono::system_clock::to_time_t(now);
@@ -55,7 +66,10 @@ void simulateInput(OrderBook& orderBook, TransactionList& txList, const std::str
     }
 }
 
-TEST(OrderBookTest, SimpleUsage) {
+// Test:        Simple match
+// Input:       Buy order with price = 100 and Sell order with price = 100
+// Expected:    Orders are popped, 1 transaction is processed
+TEST(OrderBookTest, Match) {
     OrderBook orderBook;
     TransactionList txList;
 
@@ -67,6 +81,9 @@ TEST(OrderBookTest, SimpleUsage) {
     EXPECT_EQ(txList.getSize(), 1);
 }
 
+// Test:        No match
+// Input:       Buy order with price = 90 and Sell order with price = 100
+// Expected:    Orders remain, no transaction processed
 TEST(OrderBookTest, NoMatch) {
     OrderBook orderBook;
     TransactionList txList;
@@ -79,6 +96,26 @@ TEST(OrderBookTest, NoMatch) {
     EXPECT_EQ(txList.getSize(), 0);
 }
 
+// Test:        Partial matching and quantity change
+// Input:       Buy order with quantity = 2 and Sell order with quantity = 5
+// Expected:    Sell order remains with quantity = 3, one transaction is processed
+TEST(OrderBookTest, PartialMatch) {
+    OrderBook orderBook;
+    TransactionList txList;
+
+    simulateInput(orderBook, txList, "buy Alice 50 2");
+    simulateInput(orderBook, txList, "sell Bob 100 5");
+
+    EXPECT_EQ(txList.getSize(), 1);
+    EXPECT_NE(orderBook.getFrontSellOrder(), nullptr);
+    EXPECT_EQ(orderBook.getFrontBuyOrder(), nullptr);
+
+    EXPECT_EQ(orderBook.getFrontSellOrder()->getQuantity(), 3);
+}
+
+// Test:        Correct matching with multiple orders in the orderbook
+// Input:       2 buy and 2 sell orders of different prices
+// Expected:    1 transaction and other 2 orders remain in the orderbook
 TEST(OrderBookTest, MultipleOrdersSomeMatch) {
     OrderBook orderBook;
     TransactionList txList;
@@ -93,6 +130,9 @@ TEST(OrderBookTest, MultipleOrdersSomeMatch) {
     EXPECT_EQ(txList.getSize(), 1);
 }
 
+// Test:        While loop continues to match unless no match
+// Input:       10 Buy orders of price = 10 and quantity = 1, and 1 Sell order of price = 100 and quantity = 10.
+// Expected:    10 transactions and empty orderbook
 TEST(OrderBookTest, FullMatch) {
     OrderBook orderBook;
     TransactionList txList;
@@ -107,6 +147,9 @@ TEST(OrderBookTest, FullMatch) {
     EXPECT_EQ(txList.getSize(), 10);
 }
 
+// Test:        Buy and Sell orders from the same user must not match
+// Input:       Buy and Sell orders with matching prices from one user
+// Expected:    Orders remain in orderBook and txList size equals 0
 TEST(OrderBookTest, SameUserNoMatch) {
     OrderBook orderBook;
     TransactionList txList;
@@ -119,6 +162,46 @@ TEST(OrderBookTest, SameUserNoMatch) {
     EXPECT_EQ(txList.getSize(), 0);
 }
 
+// Test:        Send invalid command type and check if exception is thrown
+// Input:       invalid command "invalid Alice 100 1"
+// Expected:    invalid_argument to be thrown
+TEST(OrderBookTest, InvalidCommand) {
+    OrderBook orderBook;
+    TransactionList txList;
+    EXPECT_THROW({
+        try{
+            simulateInput(orderBook, txList, "invalid Alice 100 1");
+        }
+        catch (std::invalid_argument& e) {
+            EXPECT_STREQ("Invalid command: \"invalid\"", e.what() );
+            return;
+        }
+    }, std::invalid_argument);
+}
+
+// Test:        Send invalid command format and check if order is processed
+// Input:       negative quantity, negative price and missing parameters
+// Expected:    empty orderBook and txList
+TEST(OrderBookTest, InvalidInput) {
+    OrderBook orderBook;
+    TransactionList txList;
+
+    simulateInput(orderBook, txList, "buy Alice -100 1");    // Negative price
+    EXPECT_EQ(orderBook.getFrontBuyOrder(), nullptr);
+
+    simulateInput(orderBook, txList, "sell Bob 100 -1");     // Negative quantity
+    EXPECT_EQ(orderBook.getFrontSellOrder(), nullptr);
+
+    simulateInput(orderBook, txList, "buy Charlie");         // Missing parameters
+    EXPECT_EQ(orderBook.getFrontBuyOrder(), nullptr);
+
+    EXPECT_EQ(txList.getSize(), 0);                         // No valid transactions should occur
+}
+
+// Test:        Performance test by adding 100.000 orders and matching 100.000 times.
+// Input:       100.000 buy orders with quantity = 1 and price = 1
+//              and 1 order with quantity = 100.000 and price = 100.000
+// Expected:    100.000 transactions and empty orderbook.
 TEST(OrderBookTest, PerformanceTest) {
     OrderBook orderBook;
     TransactionList txList;
