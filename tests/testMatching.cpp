@@ -7,7 +7,7 @@
 #include "../src/TraderBase.h"
 #include "../src/Transaction.h"
 #include "../src/TransactionList.h"
-#include "../include/CommandType.h"
+#include "../src/CommandType.h"
 
 // Helper function to simulate input and process orders
 void simulateInput(OrderBook& orderBook, TransactionList& txList, const std::string& input) {
